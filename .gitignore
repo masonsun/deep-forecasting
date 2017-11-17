@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+# Repo-specific
+data/*.tsv
+data/*.csv
+data/*.txt
+notebooks/
+*.pdf
+
 # Distribution / packaging
 .Python
 env/
@@ -99,3 +106,9 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# pycharm
+.idea/
+
+# OSX
+.DS_Store
