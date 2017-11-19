@@ -7,9 +7,7 @@ __pycache__/
 *.so
 
 # Repo-specific
-data/*.tsv
-data/*.csv
-data/*.txt
+data/
 notebooks/
 *.pdf
 
