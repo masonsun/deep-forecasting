@@ -6,8 +6,21 @@ from torch.autograd import Variable
 import pyro
 import pyro.distributions as dist
 from pyro.util import ng_zeros, ng_ones
-
 from options import opts
+
+
+# define module for time series prediction
+# input can be concatenated with exogenous variables
+class Predictor(nn.Module):
+    def __init__(self, input_size=opts['frame'], exogenous_vars=0):
+        super(Predictor, self).__init__()
+        self.fc1 = nn.Linear(input_size + exogenous_vars, 16)
+        self.fc2 = nn.Linear(16, 1)
+
+    def forward(self, x):
+        x = F.elu(self.fc1(x))
+        x = self.fc2(x)
+        return x
 
 
 # define module that parameterizes variational distribution q(z|x)
@@ -32,6 +45,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, z_dim, hidden_dim, frame=opts['frame']):
         super(Decoder, self).__init__()
+        # layers
         self.fc1 = nn.Linear(z_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, frame)
 
@@ -100,17 +114,3 @@ class VAE(nn.Module):
         mu = self.decoder.forward(zs)
         xs = pyro.sample("sample", dist.bernoulli, mu)
         return xs, mu
-
-
-# define module for prediction
-# input can be concatenated with exogenous variables
-class Predictor(nn.Module):
-    def __init__(self, input_size=opts['frame'], exogenous_vars=0):
-        super(Predictor, self).__init__()
-        self.fc1 = nn.Linear(input_size + exogenous_vars, 16)
-        self.fc2 = nn.Linear(16, 1)
-
-    def forward(self, x):
-        x = F.elu(self.fc1(x))
-        x = self.fc2(x)
-        return x
