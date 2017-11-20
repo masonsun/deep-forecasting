@@ -8,6 +8,7 @@ __pycache__/
 
 # Repo-specific
 data/
+models/
 notebooks/
 *.pdf
 

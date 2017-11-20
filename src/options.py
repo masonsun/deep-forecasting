@@ -14,6 +14,7 @@ opts = {
     'valid_per': 0.05,    # validation split (rest is testing)
 
     # training
+    'batch_size': 1,      # batch size
     'epochs': 100,        # number of epochs to train
     'frame': 7,           # length of time series data to consider
     'test_frequency': 5,  # how often to evaluate test set
