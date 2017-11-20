@@ -1,9 +1,10 @@
 import pandas as pd
 import os
+from src.options import opts
 
-DATA_PATH = '../data/'
+DATA_PATH = opts['data_path']
 INPUT_FILENAME = 'ConsolidatedSteamSpyTimeSeries.csv'
-OUTPUT_FILENAME = 'ts_data.csv'
+OUTPUT_FILENAME = opts['data_filename']
 
 # read in data
 data = pd.read_csv(os.path.join(DATA_PATH, INPUT_FILENAME), sep=',')

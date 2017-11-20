@@ -1,9 +1,17 @@
 import torch
 
 opts = {
+    # data
+    'data_path': '../data',
+    'data_filename': 'ts_data.csv',
+
     # configuration
     'visdom': False,      # whether plotting is desired
     'tsne_iter': 99,      # how often to run t-sne visualization
+
+    # splits
+    'train_per': 0.75,    # training split
+    'valid_per': 0.05,    # validation split (rest is testing)
 
     # training
     'epochs': 100,        # number of epochs to train
