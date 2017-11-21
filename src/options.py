@@ -1,10 +1,6 @@
 import torch
 
 opts = {
-    # data
-    'data_path': '../data',
-    'data_filename': 'ts_data.csv',
-
     # file names
     'vae_state': 'vae_ckpt.pth',
     'nn_state': 'nn_ckpt.pth',
