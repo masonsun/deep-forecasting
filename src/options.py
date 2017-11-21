@@ -5,9 +5,13 @@ opts = {
     'data_path': '../data',
     'data_filename': 'ts_data.csv',
 
+    # file names
+    'vae_state': 'vae_ckpt.pth',
+    'nn_state': 'nn_ckpt.pth',
+
     # configuration
     'visdom': False,      # whether plotting is desired
-    'tsne_iter': 99,      # how often to run t-sne visualization
+    'plot': 99,           # at which epoch to plot graphs
 
     # splits
     'train_per': 0.75,    # training split
