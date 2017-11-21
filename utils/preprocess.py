@@ -57,16 +57,20 @@ def steam_db(fn):
     return data
 
 
-def common_processing(data, output_fn='result.csv'):
+def common_processing(data, output_fn='result.csv', index=True):
+    # unique games
+    games = len(data.id.unique())
+
     # metadata
     print("Number of games: {}\nNumber of days: {}\n".format(
-        len(data.id.unique()), 1 + int(str(max(data.date) - min(data.date)).split()[0])))
+        games, 1 + int(str(max(data.date) - min(data.date)).split()[0])))
 
     # reformat into usable form
-    data = pd.pivot_table(data, values='users', index='date', columns=['id'])
+    data = pd.pivot_table(data, values='users', index='date', columns=['id']).reset_index()
+    assert data.shape[1] == games, 'Loss of information after pivoting'
 
     # save to local
-    data.to_csv(create_fp(output_fn), sep=',', index=False, header=True)
+    data.to_csv(create_fp(output_fn), sep=',', index=index, header=True)
     print("Saved file to {}".format(create_fp(output_fn)))
 
 
@@ -87,9 +91,9 @@ if __name__ == '__main__':
 
     if args.filename == curr_files[0]:
         data = steam_spy(curr_files[0])
-        common_processing(data, output_files[0])
+        common_processing(data, output_files[0], index=True)
     else:
         data = steam_db(curr_files[-1])
-        common_processing(data, output_files[-1])
+        common_processing(data, output_files[-1], index=False)
 
     print("Finished.")

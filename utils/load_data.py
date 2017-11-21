@@ -9,18 +9,18 @@ import torch.utils.data as utils
 from collections import OrderedDict
 from src.options import opts
 
-# WARNING:
-# Maybe we should consider contiguous time series only (and not simply remove NaNs)
-
 # INFO:
 # We should increase batch size if we can definitely say all games have enough data to allow it
 
 
-def load_data(fp=os.path.join(opts['data_path'], opts['data_filename'])):
+def load_data(fp):
     """
     :param fp: relative path to data
     :return: OrderedDict of game_id --> (date, users)
     """
+    if not opts['data_path'].split('/')[-1] in fp:
+        fp = os.path.join(opts['data_path'], fp)
+
     try:
         data = pd.read_csv(fp)
     except IOError:
@@ -29,6 +29,9 @@ def load_data(fp=os.path.join(opts['data_path'], opts['data_filename'])):
 
     dates = data['date']
     data.drop('date', axis=1, inplace=True)
+
+    # what our data looks like
+    print("Dataset:\n{}\n".format(data.head(3)))
 
     data_dict = OrderedDict()
     min_length = np.inf
@@ -47,9 +50,9 @@ def set_dataloader(x, y):
     :param y: list of targets
     :return: torch dataloader
     """
-    x = torch.stack([torch.Tensor(i) for i in x])
-    y = torch.stack([torch.Tensor(i) for i in y])
+    x = torch.stack([torch.Tensor(i.tolist()) for i in x])
+    y = torch.stack([torch.Tensor(i.tolist()) for i in y])
     dataset = utils.TensorDataset(x, y)
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if opts['gpu'] else {}
+    kwargs = {'num_workers': 1, 'pin_memory': True} if opts['use_cuda'] else {}
     return utils.DataLoader(dataset, batch_size=opts['batch_size'], shuffle=False, **kwargs)

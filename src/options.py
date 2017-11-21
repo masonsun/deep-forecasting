@@ -1,6 +1,9 @@
 import torch
 
 opts = {
+    # file paths
+    'data_path': './data',
+
     # file names
     'vae_state': 'vae_ckpt.pth',
     'nn_state': 'nn_ckpt.pth',
