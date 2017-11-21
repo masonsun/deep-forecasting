@@ -6,7 +6,7 @@ from torch.autograd import Variable
 import pyro
 import pyro.distributions as dist
 from pyro.util import ng_zeros, ng_ones
-from options import opts
+from src.options import opts
 
 
 # define module for time series prediction
@@ -32,8 +32,17 @@ class Encoder(nn.Module):
         self.fc1 = nn.Linear(hidden_dim, z_dim)
         self.fc2 = nn.Linear(hidden_dim, z_dim)
 
+        # hidden state space
+        self.hidden_dim = hidden_dim
+        self.hidden = self.init_hidden()
+
+    def init_hidden(self):
+        return (Variable(torch.randn(1, self.hidden_dim)),
+                Variable(torch.randn(1, self.hidden_dim)))
+
     def forward(self, x):
-        hidden = F.softplus(self.lstm(x))
+        x, _ = self.lstm(x, self.hidden)
+        hidden = F.softplus(x)
         z_mu = self.fc1(hidden)
         z_sigma = torch.exp(self.fc2(hidden))
         # mean vector and positive square root covariance

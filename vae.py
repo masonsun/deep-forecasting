@@ -1,5 +1,7 @@
 import numpy as np
+import argparse
 import shutil
+
 import torch
 from torch.autograd import Variable
 from pyro.infer import SVI
@@ -11,9 +13,9 @@ from utils.plots import llk_plot
 from utils.load_data import load_data, set_dataloader
 
 # makes stuff reproducible
-np.random.seed(123)
-torch.manual_seed(456)
-torch.cuda.manual_seed(789) if opts['gpu'] else None
+np.random.seed(1)
+torch.manual_seed(12)
+torch.cuda.manual_seed(123) if opts['use_cuda'] else None
 
 
 def train_vae(data, svi, epoch):
@@ -31,7 +33,6 @@ def train_vae(data, svi, epoch):
         for i in range(iters):
             x[i] = ts[i: i + opts['frame']]
             y[i] = ts[i + opts['frame']: i + 2 * opts['frame']]
-        assert None not in x and None not in y
 
         # partition dataset
         split = np.ceil(iters * opts['train_per']).astype(int)
@@ -54,6 +55,11 @@ def train_vae(data, svi, epoch):
             # do ELBO gradient and accumulate loss
             x = Variable(x)
             train_loss += svi.step(x)
+
+        # debugging
+        if len(game_id) > 5:
+            game_id = game_id[:5] + '...'
+        print('[Game {}], current training loss: {:.3f}'.format(game_id, train_loss))
 
         # training diagnostics
         train_losses.append(train_loss / len(train_loader.dataset))
@@ -83,9 +89,15 @@ def save_checkpoint(state, is_best=True, filename=opts['vae_state']):
         shutil.copyfile(fp, fp.split(filename)[0] + 'model_best.pth')
 
 
-def main():
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Train VAE")
+    parser.add_argument('-f', '--filename', type=str, help='Data')
+    args = parser.parse_args()
+
+    assert args.filename is not None, 'Please provide a data file'
+
     # data
-    data = load_data()
+    data = load_data(args.filename)
 
     # optimizer
     adam_args = {'lr': opts['lr']}
@@ -102,7 +114,7 @@ def main():
     # training loop
     best_lb = -np.inf
     for epoch in range(opts['epochs']):
-        train_elbo[epoch], test_elbo[epoch], svi = train_vae(data, svi)
+        train_elbo[epoch], test_elbo[epoch], svi = train_vae(data, svi, epoch)
 
         print('[Epoch {:03d}] Training loss: {:.5f}, Testing loss: {:.5f}'.format(
             epoch, train_elbo[epoch], test_elbo[epoch]))
@@ -112,16 +124,19 @@ def main():
         if curr_lb > best_lb:
             best_lb = curr_lb
 
+            if opts['use_cuda']:
+                vae = vae.cpu()
+
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': vae.state_dict(),
                 'best_lb': best_lb,
                 'optimizer': optimizer.get_state()}, is_best=True)
 
+            if opts['use_cuda']:
+                vae = vae.cuda()
+
     # plot diagnostics and return model
     llk_plot(np.array(test_elbo))
-    return vae
 
-
-if __name__ == '__main__':
-    model = main()
+    print("Finished.")
