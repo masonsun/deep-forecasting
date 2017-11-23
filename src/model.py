@@ -12,12 +12,36 @@ from src.options import opts
 # define module for time series prediction
 # input can be concatenated with exogenous variables
 class Predictor(nn.Module):
-    def __init__(self, input_size=opts['frame'], exogenous_vars=0):
+    def __init__(self, model_path=None, exo_var=None, output_dim=1):
         super(Predictor, self).__init__()
-        self.fc1 = nn.Linear(input_size + exogenous_vars, 16)
-        self.fc2 = nn.Linear(16, 1)
+        # exogenous variables
+        self.exo_var = exo_var
+        self.exo_len = 0 if exo_var is None else exo_var.size(-1)
+
+        # feature representation
+        self.vae = VAE()
+        if model_path is not None:
+            self.load_model(model_path)
+        else:
+            print("Reminder: not using pre-trained weights.")
+
+        # feed forward
+        self.fc1 = nn.Linear(list(self.vae.encoder.children())[-1].out_features + self.exo_len, 16)
+        self.fc2 = nn.Linear(16, output_dim)
+
+    def load_model(self, model_path):
+        try:
+            print("Loading pre-trained weights from {}".format(model_path))
+            states = torch.load(model_path)
+            self.vae.load_state_dict(states['state_dict'])
+        except IOError:
+            raise RuntimeError("Error: file {} not found.".format(model_path))
 
     def forward(self, x):
+        mu, sigma = self.vae.encoder(x)
+        x = dist.normal(mu, sigma)
+        if self.exo_var is not None:
+            x = torch.cat((x, self.exo_var), 1)
         x = F.elu(self.fc1(x))
         x = self.fc2(x)
         return x
@@ -113,8 +137,8 @@ class VAE(nn.Module):
         # encode, sample in latent space, and decode
         z_mu, z_sigma = self.encoder(x)
         z = dist.normal(z_mu, z_sigma)
-        mu_img = self.decoder(z)
-        return mu_img
+        mu_ts = self.decoder(z)
+        return mu_ts
 
     def model_sample(self, batch_size=1):
         prior_mu = Variable(torch.zeros([batch_size, self.z_dim]))
