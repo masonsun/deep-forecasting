@@ -1,6 +1,7 @@
 import numpy as np
 import argparse
-import shutil
+import sys
+from datetime import datetime as dt
 
 import torch
 from torch.autograd import Variable
@@ -9,7 +10,7 @@ from pyro.optim import Adam
 
 from src.options import opts
 from src.model import VAE
-from utils.plots import llk_plot
+from utils.utils import llk_plot, save_checkpoint
 from utils.load_data import load_data, set_dataloader
 
 # makes stuff reproducible
@@ -18,12 +19,13 @@ torch.manual_seed(12)
 torch.cuda.manual_seed(123) if opts['use_cuda'] else None
 
 
-def train_vae(data, svi, epoch):
+def train_vae(data, svi, verbose):
     # loss across games
     train_losses = []
     test_losses = []
 
     # loop through games
+    i = 1
     for game_id, time_series in data.items():
         ts = np.array([t[1] for t in time_series], dtype=int)
         iters = len(ts) - 2 * opts['frame'] + 1
@@ -57,41 +59,39 @@ def train_vae(data, svi, epoch):
             train_loss += svi.step(x)
 
         # debugging
-        if len(game_id) > 5:
-            game_id = game_id[:5] + '...'
-        print('[Game {}], current training loss: {:.3f}'.format(game_id, train_loss))
+        if verbose:
+            if len(game_id) > 5:
+                game_id = game_id[:5] + '...'
+            print('[Game {}, {:03d}/{:03d}], current training ELBO: {:.3f}'.format(
+                game_id, i, len(data), train_loss))
+            i += 1
 
         # training diagnostics
         train_losses.append(train_loss / len(train_loader.dataset))
 
         # testing
-        if epoch % opts['test_frequency'] == 0:
-            for i, (x, _) in enumerate(test_loader):
-                if opts['use_cuda']:
-                    x = x.cuda()
+        for i, (x, _) in enumerate(test_loader):
+            if opts['use_cuda']:
+                x = x.cuda()
 
-                # wrap mini-batch in pytorch variable,
-                # compute ELBO estimate and accumulate loss
-                x = Variable(x)
-                test_loss += svi.evaluate_loss(x)
+            # wrap mini-batch in pytorch variable,
+            # compute ELBO estimate and accumulate loss
+            x = Variable(x)
+            test_loss += svi.evaluate_loss(x)
 
-            # testing diagnostics
-            test_losses.append(test_loss / len(test_loader.dataset))
+        # testing diagnostics
+        test_losses.append(test_loss / len(test_loader.dataset))
 
     # return mean training and testing losses
     return np.array(train_losses).mean(axis=0), np.array(test_losses).mean(axis=0), svi
 
 
-def save_checkpoint(state, is_best=True, filename=opts['vae_state']):
-    fp = '../model/{}'.format(filename)
-    torch.save(state, fp)
-    if is_best:
-        shutil.copyfile(fp, fp.split(filename)[0] + 'model_best.pth')
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train VAE")
-    parser.add_argument('-f', '--filename', type=str, help='Data')
+    parser.add_argument('-f', '--filename', type=str, help='data')
+    parser.add_argument('-w', '--weights', default=None, help='load trained weights')
+    parser.add_argument('-v', '--verbose', default=False, help='verbose mode')
+    parser.add_argument('-e', '--epochs', type=int, default=100, help='epochs')
     args = parser.parse_args()
 
     assert args.filename is not None, 'Please provide a data file'
@@ -103,40 +103,71 @@ if __name__ == '__main__':
     adam_args = {'lr': opts['lr']}
     optimizer = Adam(adam_args)
 
-    # inference
+    # vae
     vae = VAE()
+
+    # load weights if available
+    if args.weights is not None:
+        try:
+            print("Loading trained weights: {}".format(args.weights))
+            states = torch.load(args.weights)
+            vae.load_state_dict(states['state_dict'])
+        except IOError:
+            print("File not found: {}".format(args.weights))
+            sys.exit(-1)
+
+    # inference
     svi = SVI(vae.model, vae.guide, optimizer, loss='ELBO')
 
     # loss
-    train_elbo = []
-    test_elbo = []
+    train_elbo = [None] * args.epochs
+    test_elbo = [None] * args.epochs
+
+    # training info
+    print("Training VAE with time frame = {} days".format(opts['frame']))
+    with open('./models/vae_log.txt', 'a') as f:
+        f.write('=== New run ===\n')
 
     # training loop
     best_lb = -np.inf
-    for epoch in range(opts['epochs']):
-        train_elbo[epoch], test_elbo[epoch], svi = train_vae(data, svi, epoch)
+    for epoch in range(args.epochs):
+        start_time = dt.now()
 
-        print('[Epoch {:03d}] Training loss: {:.5f}, Testing loss: {:.5f}'.format(
-            epoch, train_elbo[epoch], test_elbo[epoch]))
+        train_elbo[epoch], test_elbo[epoch], svi = train_vae(data, svi, args.verbose)
+        train_elbo[epoch] *= -1
+        test_elbo[epoch] *= -1
+
+        # logging
+        log = '[Epoch {:03d}/{:03d}] Training ELBO: {:.4f}, Testing ELBO: {:.4f}, Mins: {}'.format(
+            epoch + 1, args.epochs, train_elbo[epoch], test_elbo[epoch],
+            (dt.now() - start_time).total_seconds() / 60)
+
+        with open('./models/vae_log.txt', 'a') as f:
+            f.write(log + '\n')
 
         # checkpoint
-        curr_lb = np.array(test_elbo).mean(axis=0)
+        is_best = False
+        curr_lb = np.array(test_elbo[:epoch + 1]).mean(axis=0)
+
         if curr_lb > best_lb:
             best_lb = curr_lb
+            is_best = True
 
-            if opts['use_cuda']:
-                vae = vae.cpu()
+        if opts['use_cuda']:
+            vae = vae.cpu()
 
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': vae.state_dict(),
-                'best_lb': best_lb,
-                'optimizer': optimizer.get_state()}, is_best=True)
+        states = {'epoch': epoch + 1,
+                  'state_dict': vae.state_dict(),
+                  'best_lb': best_lb,
+                  'optimizer': optimizer.get_state()}
 
-            if opts['use_cuda']:
-                vae = vae.cuda()
+        save_checkpoint(states, opts['vae_state'], is_best=is_best)
 
-    # plot diagnostics and return model
+        if opts['use_cuda']:
+            vae = vae.cuda()
+
+    # plot diagnostics
+    llk_plot(np.array(test_elbo), np.array(train_elbo))
     llk_plot(np.array(test_elbo))
 
     print("Finished.")

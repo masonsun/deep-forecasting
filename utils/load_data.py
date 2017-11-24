@@ -9,13 +9,11 @@ import torch.utils.data as utils
 from collections import OrderedDict
 from src.options import opts
 
-# INFO:
-# We should increase batch size if we can definitely say all games have enough data to allow it
 
-
-def load_data(fp):
+def load_data(fp, verbose=False):
     """
     :param fp: relative path to data
+    :param verbose: verbose mode
     :return: OrderedDict of game_id --> (date, users)
     """
     if not opts['data_path'].split('/')[-1] in fp:
@@ -31,7 +29,8 @@ def load_data(fp):
     data.drop('date', axis=1, inplace=True)
 
     # what our data looks like
-    print("Dataset:\n{}\n".format(data.head(3)))
+    if verbose:
+        print("Dataset:\n{}\n".format(data.head(3)))
 
     data_dict = OrderedDict()
     min_length = np.inf
@@ -50,9 +49,13 @@ def set_dataloader(x, y):
     :param y: list of targets
     :return: torch dataloader
     """
-    x = torch.stack([torch.Tensor(i.tolist()) for i in x])
-    y = torch.stack([torch.Tensor(i.tolist()) for i in y])
-    dataset = utils.TensorDataset(x, y)
+    try:
+        x = torch.stack([torch.Tensor(i.tolist()) for i in x])
+        y = torch.stack([torch.Tensor(i.tolist()) for i in y])
+        dataset = utils.TensorDataset(x, y)
+    except ValueError:
+        print("Not enough dates to perform time series prediction")
+        sys.exit(-1)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if opts['use_cuda'] else {}
     return utils.DataLoader(dataset, batch_size=opts['batch_size'], shuffle=False, **kwargs)
