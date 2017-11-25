@@ -6,7 +6,7 @@ from datetime import datetime as dt
 import torch
 from torch.autograd import Variable
 from pyro.infer import SVI
-from pyro.optim import Adam
+from pyro.optim import ClippedAdam
 
 from src.options import opts
 from src.model import VAE
@@ -25,7 +25,7 @@ def train_vae(data, svi, verbose):
     test_losses = []
 
     # loop through games
-    i = 1
+    c = 1
     for game_id, time_series in data.items():
         ts = np.array([t[1] for t in time_series], dtype=int)
         iters = len(ts) - 2 * opts['frame'] + 1
@@ -63,14 +63,14 @@ def train_vae(data, svi, verbose):
             if len(game_id) > 5:
                 game_id = game_id[:5] + '...'
             print('[Game {}, {:03d}/{:03d}], current training ELBO: {:.3f}'.format(
-                game_id, i, len(data), train_loss))
-            i += 1
+                game_id, c, len(data), train_loss))
+            c += 1
 
         # training diagnostics
         train_losses.append(train_loss / len(train_loader.dataset))
 
         # testing
-        for i, (x, _) in enumerate(test_loader):
+        for _, (x, _) in enumerate(test_loader):
             if opts['use_cuda']:
                 x = x.cuda()
 
@@ -100,18 +100,21 @@ if __name__ == '__main__':
     data = load_data(args.filename)
 
     # optimizer
-    adam_args = {'lr': opts['lr']}
-    optimizer = Adam(adam_args)
+    adam_params = {'lr': opts['lr'], 'clip_norm': opts['grad_clip'],
+                   'lrd': opts['lrd'], 'weight_decay': opts['w_decay']}
+    optimizer = ClippedAdam(adam_params)
 
     # vae
     vae = VAE()
 
     # load weights if available
+    prev_epoch = 0
     if args.weights is not None:
         try:
             print("Loading trained weights: {}".format(args.weights))
             states = torch.load(args.weights)
             vae.load_state_dict(states['state_dict'])
+            prev_epoch = int(states['epoch'])
         except IOError:
             print("File not found: {}".format(args.weights))
             sys.exit(-1)
@@ -130,7 +133,7 @@ if __name__ == '__main__':
 
     # training loop
     best_lb = -np.inf
-    for epoch in range(args.epochs):
+    for epoch in enumerate(range(args.epochs), prev_epoch):
         start_time = dt.now()
 
         train_elbo[epoch], test_elbo[epoch], svi = train_vae(data, svi, args.verbose)
@@ -138,7 +141,7 @@ if __name__ == '__main__':
         test_elbo[epoch] *= -1
 
         # logging
-        log = '[Epoch {:03d}/{:03d}] Training ELBO: {:.4f}, Testing ELBO: {:.4f}, Mins: {}'.format(
+        log = '[Epoch {:03d}/{:03d}] Training ELBO: {:.4f}, Testing ELBO: {:.4f}, Mins: {:.1f}'.format(
             epoch + 1, args.epochs, train_elbo[epoch], test_elbo[epoch],
             (dt.now() - start_time).total_seconds() / 60)
 
