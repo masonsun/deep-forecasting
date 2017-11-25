@@ -138,6 +138,8 @@ if __name__ == '__main__':
 
     # network
     model = Predictor(model_path=args.weights, output_dim=args.output_dim)
+    if opts['use_cuda']:
+        model = model.cuda()
 
     # training mode
     if to_train:
@@ -203,7 +205,7 @@ if __name__ == '__main__':
 
         print("Finished training and testing.")
 
-    # prediction
+    # prediction mode
     else:
 
         print("Finished predicting.")
