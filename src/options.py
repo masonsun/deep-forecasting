@@ -17,16 +17,21 @@ opts = {
     'valid_per': 0.05,    # validation split (rest is testing)
 
     # training
-    'batch_size': 1,      # batch size
-    'epochs': 100,        # number of epochs to train
-    'frame': 7,           # length of time series data to consider
+    'batch_size': 3,      # batch size
+    'frame': 21,          # length of time series data to consider
     'test_frequency': 5,  # how often to evaluate test set
-    'lr': 1e-3,           # learning rate
-    'b1': 0.95,           # Adam beta1 parameter
     'dropout': 0.5,       # probability of dropout
 
+    # tuning
+    'lr': 1e-3,            # learning rate
+    'lrd': 1e-6,           # learning rate decay
+    'w_decay': 5e-4,       # weight decay
+    'momentum': 0.9,       # momentum
+    'grad_clip': 10,       # clip gradient
+    'beta': (0.95, 0.95),  # Adam beta parameters
+
     # other
-    'fudge': 1e-7,        # fudge factor for numerical stability
+    'fudge': 1e-7,         # fudge factor for numerical stability
 
     # gpu
     'use_cuda': True and torch.cuda.is_available()

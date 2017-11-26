@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import pandas as pd
 from datetime import datetime as dt
 
 import torch
@@ -18,9 +19,9 @@ torch.manual_seed(12)
 torch.cuda.manual_seed(123) if opts['use_cuda'] else None
 
 
-def data_validation(data, max_len):
+def data_validation(data, min_len):
     for (g, d) in data:
-        if len(d) < max_len:
+        if len(d) < min_len:
             raise RuntimeError("Not enough timestamps at id = {}".format(g))
 
 
@@ -117,7 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose', default=False, help='verbose mode')
     parser.add_argument('-e', '--epochs', type=int, default=100, help='epochs')
     parser.add_argument('-o', '--output_dim', type=int, default=1, help='number of days to predict')
-    parser.add_argument('-m', '--mode', default=1, help='training: 0, prediction: 1')
+    parser.add_argument('-m', '--mode', type=int, default=1, help='training: 0, prediction: 1')
     args = parser.parse_args()
 
     # data
@@ -135,6 +136,16 @@ if __name__ == '__main__':
         print("===== Prediction =====")
     else:
         print("Warning: invalid mode, defaulting to prediction.")
+
+    # output dimension
+    if args.weights is not None:
+        states = torch.load(args.weights)
+        try:
+            if int(states['output_dim']) != args.output_dim:
+                raise RuntimeError("Output dim = {}, but was trained with dim = {}.".format(
+                    args.output_dim, int(states['output_dim'])))
+        except KeyError:
+            raise RuntimeError("Incorrect weights loaded.")
 
     # network
     model = Predictor(model_path=args.weights, output_dim=args.output_dim)
@@ -207,5 +218,27 @@ if __name__ == '__main__':
 
     # prediction mode
     else:
+        print("Prediction with time frames: {} -> {}".format(opts['frame'], args.output_dim))
 
-        print("Finished predicting.")
+        results = {}
+        for game_id, time_series in data:
+            ts = torch.from_numpy(np.array([t[1] for t in time_series], dtype=int)[-opts['frame']:]).float()
+            ts = ts.cuda() if opts['use_cuda'] else ts
+
+            next_ts = model(Variable(ts).unsqueeze(0))
+            next_ts = next_ts.cpu() if opts['use_cuda'] else next_ts
+
+            results[game_id] = np.round(next_ts.data.numpy().astype(float), 1)[0]
+
+            if args.verbose:
+                gid = '{}...'.format(game_id[:5]) if len(game_id) > 5 else game_id
+                res = ', '.join(map(str, list(results[game_id])))
+                print("Game {} -> {}".format(gid, res))
+
+        assert len(results) == len(data), 'Length mismatch after prediction'
+        df = pd.DataFrame(results).transpose().reset_index()
+        df.columns = ['id'] + ['t+{}'.format(t + 1) for t in range(args.output_dim)]
+
+        results_filename = 'results.csv'
+        print("Saving results to {}".format(results_filename))
+        df.to_csv('./{}'.format(results_filename), header=True, index=False)
