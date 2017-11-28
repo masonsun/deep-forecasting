@@ -67,15 +67,16 @@ def train_nn(train_data, test_data, in_dim, out_dim, verbose=False):
             output = model(x)
             loss = criterion(output, y)
             loss.backward()
+            torch.nn.utils.clip_grad_norm(model.parameters(), opts['grad_clip'])
             optimizer.step()
 
             running_loss += loss.data[0]
 
-            if verbose:
-                gid = '{}...'.format(game_id[:5]) if len(game_id) > 5 else game_id
-                print('[Game {}, {:03d}/{:03d}], current training loss: {:.3f}'.format(
-                    gid, c, len(data), running_loss))
-                c += 1
+        if verbose:
+            gid = '{}...'.format(game_id[:5]) if len(game_id) > 5 else game_id
+            print('[Game {}, {:03d}/{:03d}], current training loss: {:.3f}'.format(
+                gid, c, len(data), running_loss))
+            c += 1
 
         # training diagnostics
         train_losses.append(running_loss / len(train_loader.dataset))
@@ -99,11 +100,11 @@ def train_nn(train_data, test_data, in_dim, out_dim, verbose=False):
             loss = criterion(output, y)
             running_loss += loss.data[0]
 
-            if verbose:
-                gid = '{}...'.format(game_id[:5]) if len(game_id) > 5 else game_id
-                print('[Game {}, {:03d}/{:03d}], current testing loss: {:.3f}'.format(
-                    gid, c, len(data), running_loss))
-                c += 1
+        if verbose:
+            gid = '{}...'.format(game_id[:5]) if len(game_id) > 5 else game_id
+            print('[Game {}, {:03d}/{:03d}], current testing loss: {:.3f}'.format(
+                gid, c, len(data), running_loss))
+            c += 1
 
         # testing diagnostics
         test_losses.append(running_loss / len(test_loader.dataset))
@@ -138,7 +139,7 @@ if __name__ == '__main__':
         print("Warning: invalid mode, defaulting to prediction.")
 
     # output dimension
-    if args.weights is not None:
+    if args.weights is not None and args.mode != 0:
         states = torch.load(args.weights)
         try:
             if int(states['output_dim']) != args.output_dim:
@@ -166,7 +167,8 @@ if __name__ == '__main__':
         # loss and optimizer
         best_loss = np.inf
         criterion = nn.MSELoss()
-        optimizer = optim.RMSprop(model.parameters(), lr=opts['lr'], momentum=opts['momentum'])
+        optimizer = optim.Adam(model.parameters(), lr=opts['lr'], betas=opts['beta'], eps=opts['fudge'],
+                               weight_decay=opts['w_decay'])
 
         # history
         train_loss = [None] * args.epochs
@@ -201,7 +203,8 @@ if __name__ == '__main__':
                 model = model.cpu()
 
             states = {'epoch': epoch + 1,
-                      'state_dict': model.state_dict(),
+                      'state_dict': model.vae.state_dict(),
+                      'ff_dict': model.ff.state_dict(),
                       'loss': best_loss,
                       'optimizer': optimizer.state_dict(),
                       'output_dim': args.output_dim}

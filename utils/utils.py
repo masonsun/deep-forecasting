@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 sns.set_style('darkgrid')
-sns.set(font_scale=1.8)
+sns.set(font_scale=1.5)
 
 FILE_TYPE = 'pdf'
 
@@ -55,9 +55,9 @@ def mse_plot(train_loss, test_loss):
         'Training loss': train_loss,
         'Testing loss': test_loss})
 
-    mpl.rcParams.update({'font.size': 22,
-                         'xtick.labelsize': 15,
-                         'ytick.labelsize': 15})
+    mpl.rcParams.update({'font.size': 18,
+                         'xtick.labelsize': 12,
+                         'ytick.labelsize': 12})
 
     ax = df.iloc[:, 1:].plot(title='Prediction network loss')
     ax.set(xlabel='Epoch', ylabel='Loss')
