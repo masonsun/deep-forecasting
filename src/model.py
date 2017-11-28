@@ -20,31 +20,41 @@ class Predictor(nn.Module):
 
         # feature representation
         self.vae = VAE()
+
+        # prediction
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.5)
+        self.ff = nn.Sequential(
+            nn.Linear(list(self.vae.encoder.children())[-1].out_features + self.exo_len, 128),
+            self.relu, self.dropout, nn.Linear(128, 64),
+            self.relu, self.dropout, nn.Linear(64, output_dim))
+
+        # pre-trained weights
         if model_path is not None:
             self.load_model(model_path)
         else:
-            print("Reminder: not using pre-trained weights.")
-
-        # feed forward
-        self.fc1 = nn.Linear(list(self.vae.encoder.children())[-1].out_features + self.exo_len, 16)
-        self.fc2 = nn.Linear(16, output_dim)
+            print("Reminder: not using pre-trained weights")
 
     def load_model(self, model_path):
         try:
             print("Loading pre-trained weights from {}".format(model_path))
             states = torch.load(model_path)
             self.vae.load_state_dict(states['state_dict'])
+            print("... Loaded VAE weights")
+            try:
+                self.ff.load_state_dict(states['ff_dict'])
+                print("... Loaded FF weights")
+            except KeyError:
+                print("... Did not load FF weights")
         except IOError:
-            raise RuntimeError("Error: file {} not found.".format(model_path))
+            raise RuntimeError("File {} not found".format(model_path))
 
     def forward(self, x):
         mu, sigma = self.vae.encoder(x)
         x = dist.normal(mu, sigma)
         if self.exo_var is not None:
             x = torch.cat((x, self.exo_var), 1)
-        x = F.elu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.ff(x)
 
 
 # define module that parameterizes variational distribution q(z|x)
