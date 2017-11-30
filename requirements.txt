@@ -3,6 +3,5 @@ pandas
 scipy
 torch
 pyro-ppl
-visdom
 matplotlib
 seaborn
