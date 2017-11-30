@@ -9,16 +9,13 @@ opts = {
     'nn_state': 'nn_ckpt.pth',
 
     # configuration
-    'visdom': False,      # whether plotting is desired
     'plot': 99,           # at which epoch to plot graphs
 
     # splits
-    'train_per': 0.75,    # training split
+    'train_per': 0.90,    # training split
     'valid_per': 0.05,    # validation split (rest is testing)
 
     # training
-    'batch_size': 3,      # batch size
-    'frame': 21,          # length of time series data to consider
     'test_frequency': 5,  # how often to evaluate test set
     'dropout': 0.5,       # probability of dropout
 

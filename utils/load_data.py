@@ -43,10 +43,11 @@ def load_data(fp, verbose=False):
     return data_dict
 
 
-def set_dataloader(x, y):
+def set_dataloader(x, y, batch_size=1):
     """
     :param x: list of data
     :param y: list of targets
+    :param batch_size: batch size
     :return: torch dataloader
     """
     try:
@@ -57,5 +58,5 @@ def set_dataloader(x, y):
         print("Not enough dates to perform time series prediction")
         sys.exit(-1)
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if opts['use_cuda'] else {}
-    return utils.DataLoader(dataset, batch_size=opts['batch_size'], shuffle=False, **kwargs)
+    kwargs = {'num_workers': 2, 'pin_memory': True} if opts['use_cuda'] else {}
+    return utils.DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True, **kwargs)
