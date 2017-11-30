@@ -156,7 +156,7 @@ if __name__ == '__main__':
                   'best_lb': best_lb,
                   'optimizer': optimizer.get_state()}
 
-        save_checkpoint(states, opts['vae_state'], is_best=is_best)
+        save_checkpoint(states, filename=opts['vae_state'], dim=args.dim, is_best=is_best)
 
         if opts['use_cuda']:
             vae = vae.cuda()

@@ -68,8 +68,9 @@ def mse_plot(train_loss, test_loss):
     plt.close('all')
 
 
-def save_checkpoint(state, filename, is_best=True):
-    fp = './models/{}'.format(filename)
+def save_checkpoint(state, filename, dim, is_best=True):
+    f1, f2 = filename.split('_')
+    fp = './models/{}{}_{}'.format(f1, dim, f2)
     torch.save(state, fp)
     if is_best:
-        shutil.copyfile(fp, '{}{}_best.pth'.format(fp.split(filename)[0], filename.split('_')[0]))
+        shutil.copyfile(fp, '{}_best.pth'.format(fp.split('_ckpt')[0]))
