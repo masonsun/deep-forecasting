@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--epochs', type=int, default=10, help='epochs')
     parser.add_argument('-d', '--dim', type=int, default=180, help='input/output dimensions')
     parser.add_argument('-b', '--batch_size', type=int, default=1, help='batch size')
-    parser.add_argument('-v', '--verbose', type=bool, default=False, help='verbose mode')
+    parser.add_argument('-v', '--verbose', type=bool, help='verbose mode')
     args = parser.parse_args()
 
     # tensor dataset
@@ -34,15 +34,23 @@ if __name__ == '__main__':
     print('... Loading dataset')
     data = load_data(args.filename)
 
-    iters = len(list(data.values())[0]) - 2 * args.dim + 1
     x, y = [], []
-
+    skipped = 0
     for game_id, time_series in data.items():
-        ts = np.array([t[1] for t in time_series], dtype=int)
+        ts = np.trim_zeros(np.array([t[1] for t in time_series], dtype=int), trim='f')
+        if len(ts) < args.dim * 2:
+            skipped += 1
+            if args.verbose:
+                print("... Not enough timestamps for {} after trimming: {}".format(game_id, len(ts)))
+            continue
+
+        iters = len(ts) - 2 * args.dim + 1
         for i in range(iters):
             x.append(ts[i: i + args.dim])
             y.append(ts[i + args.dim: i + 2 * args.dim])
-    assert iters * len(data) == len(x) == len(y), 'Length mismatch after preparing time series'
+
+    assert len(x) == len(y), 'Length mismatch after preparing time series'
+    print("... Skipped observations: {}".format(skipped))
     print('... Number of observations: {}'.format(len(x)))
 
     # partition dataset
@@ -72,8 +80,7 @@ if __name__ == '__main__':
             sys.exit(-1)
 
     # optimizer
-    adam_params = {'lr': opts['lr'], 'clip_norm': opts['grad_clip'],
-                   'lrd': opts['lrd'], 'weight_decay': opts['w_decay']}
+    adam_params = {'lr': 1e-6, 'clip_norm': 10, 'weight_decay': opts['w_decay']}
     optimizer = ClippedAdam(adam_params)
 
     # inference
@@ -128,8 +135,8 @@ if __name__ == '__main__':
                     test_loss))
 
         # record mean training and testing losses
-        train_elbo[epoch] = -1 * train_loss / len(train_loader.dataset)
-        test_elbo[epoch] = -1 * test_loss / len(test_loader.dataset)
+        train_elbo[epoch] = -train_loss / len(train_loader.dataset)
+        test_elbo[epoch] = -test_loss / len(test_loader.dataset)
 
         # logging
         log = '[Epoch {:03d}/{:03d}] Training ELBO: {:.4f}, Testing ELBO: {:.4f}, Mins: {:.1f}'.format(
