@@ -7,6 +7,7 @@ from datetime import datetime as dt
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim import lr_scheduler
 from torch.autograd import Variable
 
 from src.options import opts
@@ -35,11 +36,17 @@ def save_predictions(val, filename):
 
 
 def create_batch(data, in_dim, out_dim, b_size):
-    iters = len(data[0][1]) - (in_dim + out_dim) + 1
     x, y = [], []
-
+    skipped = 0
     for game_id, time_series in data:
-        ts = np.array([t[1] for t in time_series], dtype=int)
+        ts = np.trim_zeros(np.array([t[1] for t in time_series], dtype=int), trim='f')
+        if len(ts) < in_dim + out_dim:
+            skipped += 1
+            if args.verbose:
+                print("... Not enough timestamps for {} after trimming: {}".format(game_id, len(ts)))
+            continue
+
+        iters = len(ts) - (in_dim + out_dim) + 1
         for i in range(iters):
             x_dim = ts[i: i + in_dim]
             y_dim = ts[i + in_dim: i + in_dim + out_dim]
@@ -48,7 +55,8 @@ def create_batch(data, in_dim, out_dim, b_size):
             x.append(x_dim)
             y.append(y_dim)
 
-    assert iters * len(data) == len(x) == len(y), 'Length mismatch after preparing time series'
+    assert len(x) == len(y), 'Length mismatch after preparing time series'
+    print("... Skipped observations: {}".format(skipped))
     print('... Number of observations: {}'.format(len(x)))
     return set_dataloader(x, y, b_size)
 
@@ -58,11 +66,12 @@ if __name__ == '__main__':
     parser.add_argument('-f', '--filename', type=str, help='data')
     parser.add_argument('-w', '--weights', default=None, help='load trained weights')
     parser.add_argument('-m', '--mode', type=int, default=1, help='training: 0, prediction: 1')
-    parser.add_argument('-i', '--input_dim', type=int, default=180, help='input dimension')
-    parser.add_argument('-o', '--output_dim', type=int, default=60, help='output dimension')
+    parser.add_argument('-i', '--input_dim', type=int, default=365, help='input dimension')
+    parser.add_argument('-o', '--output_dim', type=int, default=90, help='output dimension')
     parser.add_argument('-b', '--batch_size', type=int, default=1, help='batch size')
     parser.add_argument('-e', '--epochs', type=int, default=100, help='epochs')
     parser.add_argument('-v', '--verbose', default=False, help='verbose mode')
+    parser.add_argument('-t', '--bootstrap', default=10, help='number of bootstrap iterations')
     args = parser.parse_args()
 
     # dimensions
@@ -82,7 +91,11 @@ if __name__ == '__main__':
     elif args.mode == 1:
         print("===== Prediction =====")
     else:
-        print("Warning: invalid mode, defaulting to prediction.")
+        print("... Warning: invalid mode, defaulting to prediction.")
+
+    # weights
+    if args.weights is None and args.mode == 1:
+        raise RuntimeError("Predicting without loaded weights")
 
     # output dimension
     if args.weights is not None and args.mode != 0:
@@ -95,7 +108,9 @@ if __name__ == '__main__':
             raise RuntimeError("Incorrect weights loaded.")
 
     # network
-    model = Predictor(input_dim=in_dim, output_dim=out_dim, model_path=args.weights)
+    model = Predictor(input_dim=in_dim, output_dim=out_dim,
+                      batch_size=args.batch_size, model_path=args.weights)
+
     if opts['use_cuda']:
         model = model.cuda()
 
@@ -118,9 +133,9 @@ if __name__ == '__main__':
         valid_loader = create_batch(valid_data, in_dim, out_dim, args.batch_size)
 
         # loss and optimizer
-        criterion = nn.MSELoss()
-        optimizer = optim.Adam(model.parameters(), lr=opts['lr'], betas=opts['beta'],
-                               eps=opts['fudge'], weight_decay=opts['w_decay'])
+        criterion = nn.SmoothL1Loss()
+        optimizer = optim.Adam(model.parameters(), lr=1e-2)
+        scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, patience=2, verbose=args.verbose)
 
         # history
         train_losses = []
@@ -162,7 +177,7 @@ if __name__ == '__main__':
             train_losses.append(running_loss / len(train_loader.dataset))
 
             if args.verbose:
-                print("... Testing")
+                print("... Validating")
 
             # test over mini-batch
             model.eval()
@@ -183,7 +198,9 @@ if __name__ == '__main__':
                         running_loss))
 
             # testing diagnostics
-            valid_losses.append(running_loss / len(valid_loader.dataset))
+            val_loss = running_loss / len(valid_loader.dataset)
+            valid_losses.append(val_loss)
+            scheduler.step(val_loss)
 
             # logging
             log = '[Epoch {:03d}/{:03d}] train loss: {:.3f}, val loss: {:.3f}, time: {:.1f}'.format(
@@ -228,27 +245,45 @@ if __name__ == '__main__':
     # prediction mode
     else:
         print("... Prediction with time frames: {} -> {}".format(in_dim, out_dim))
-        result, actual = {}, {}
+
+        # to enable MC dropout
+        model.train()
+        print("... Bootstrapping iterations: {}".format(args.bootstrap))
+
+        result, uncert, actual = {}, {}, {}
         for game_id, time_series in data:
             arr = np.array([t[1] for t in time_series], dtype=int)
             x = torch.from_numpy(arr[-(in_dim + out_dim): -out_dim]).float()
             y = arr[-out_dim:].astype(int)
 
             x = x.cuda() if opts['use_cuda'] else x
-            y_pred = model(Variable(x).unsqueeze(0))
-            y_pred = y_pred.cpu() if opts['use_cuda'] else y_pred
+            sample = []
 
-            result[game_id] = y_pred.data.numpy().astype(int)[0]
+            for b in range(args.bootstrap):
+                y_pred = model(Variable(x).unsqueeze(0))
+                y_pred = y_pred.cpu() if opts['use_cuda'] else y_pred
+                y_pred = np.round(y_pred.data.numpy(), 0).astype(int)[0]
+                sample.append(y_pred)
+
+            sample = np.concatenate(sample, axis=0).reshape(args.bootstrap, -1)
+            y_sample = sample.mean(axis=0)
+
+            result[game_id] = y_sample
+            uncert[game_id] = np.round(np.sqrt(np.sum((sample - y_sample) ** 2, axis=0) / args.bootstrap), 2)
             actual[game_id] = y
+            assert result[game_id].shape == uncert[game_id].shape == actual[game_id].shape
 
             if args.verbose:
                 gid = '{}...'.format(game_id[:5]) if len(game_id) > 5 else game_id
-                res = ', '.join(map(str, list(result[game_id])))
                 act = ', '.join(map(str, list(actual[game_id])))
-                print("Game {} --> {}\n{} --> {}".format(gid, res, ' ' * (len(gid) + 5), act))
+                res = ', '.join(map(str, list(result[game_id])))
+                err = ', '.join(map(str, list(uncert[game_id])))
+                fil = ' ' * (len(gid) + 5)
+                print("Game {} --> {}\n{} --> {}\n{} --> {}".format(gid, act, fil, res, fil, err))
 
-        assert len(result) == len(data), 'Length mismatch after prediction'
+        assert len(result) == len(uncert) == len(data), 'Length mismatch after prediction'
         save_predictions(result, 'results.csv')
+        save_predictions(uncert, 'error.csv')
         save_predictions(actual, 'ground_truth.csv')
         print("... Finished predicting")
         sys.exit(0)
