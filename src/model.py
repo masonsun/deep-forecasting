@@ -12,32 +12,32 @@ from src.options import opts
 # define module for time series prediction
 # input can be concatenated with exogenous variables
 class Predictor(nn.Module):
-    def __init__(self, model_path=None, exo_var=None, output_dim=1):
+    def __init__(self, input_dim=365, output_dim=90, batch_size=1, model_path=None, exo_var=None):
         super(Predictor, self).__init__()
         # exogenous variables
         self.exo_var = exo_var
         self.exo_len = 0 if exo_var is None else exo_var.size(-1)
 
         # feature representation
-        self.vae = VAE()
+        self.vae = VAE(frame=input_dim, batch_size=batch_size)
 
         # prediction
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(opts['dropout'])
         self.ff = nn.Sequential(
-            nn.Linear(list(self.vae.encoder.children())[-1].out_features + self.exo_len, 128),
-            self.relu, self.dropout, nn.Linear(128, 64),
-            self.relu, self.dropout, nn.Linear(64, output_dim))
+            nn.Linear(list(self.vae.encoder.children())[-1].out_features + self.exo_len, 270),
+            self.relu, self.dropout, nn.Linear(270, 180),
+            self.relu, self.dropout, nn.Linear(180, output_dim))
 
         # pre-trained weights
         if model_path is not None:
             self.load_model(model_path)
         else:
-            print("Reminder: not using pre-trained weights")
+            print("... Reminder: not using pre-trained weights")
 
     def load_model(self, model_path):
         try:
-            print("Loading pre-trained weights from {}".format(model_path))
+            print("... Loading pre-trained weights from {}".format(model_path))
             states = torch.load(model_path)
             self.vae.load_state_dict(states['state_dict'])
             print("... Loaded VAE weights")
@@ -59,24 +59,29 @@ class Predictor(nn.Module):
 
 # define module that parameterizes variational distribution q(z|x)
 class Encoder(nn.Module):
-    def __init__(self, z_dim, hidden_dim, frame=opts['frame']):
+    def __init__(self, z_dim, hidden_dim, frame, b_dim):
         super(Encoder, self).__init__()
         # layers
+        self.dropout = nn.Dropout(p=opts['dropout'])
         self.lstm = nn.LSTMCell(frame, hidden_dim)
         self.fc1 = nn.Linear(hidden_dim, z_dim)
         self.fc2 = nn.Linear(hidden_dim, z_dim)
 
         # hidden state space
+        self.b_dim = b_dim
         self.hidden_dim = hidden_dim
         self.hidden = self.init_hidden()
 
     def init_hidden(self):
-        return (Variable(torch.randn(1, self.hidden_dim)),
-                Variable(torch.randn(1, self.hidden_dim)))
+        s = (Variable(torch.randn(self.b_dim, self.hidden_dim)),
+             Variable(torch.randn(self.b_dim, self.hidden_dim)))
+        if opts['use_cuda']:
+            return s[0].cuda(), s[1].cuda()
+        return s
 
     def forward(self, x):
         x, _ = self.lstm(x, self.hidden)
-        hidden = F.softplus(x)
+        hidden = F.softplus(self.dropout(x))
         z_mu = self.fc1(hidden)
         z_sigma = torch.exp(self.fc2(hidden))
         # mean vector and positive square root covariance
@@ -86,7 +91,7 @@ class Encoder(nn.Module):
 
 # define module that parameterizes the observation likelihood p(x|z)
 class Decoder(nn.Module):
-    def __init__(self, z_dim, hidden_dim, frame=opts['frame']):
+    def __init__(self, z_dim, hidden_dim, frame):
         super(Decoder, self).__init__()
         # layers
         self.fc1 = nn.Linear(z_dim, hidden_dim)
@@ -103,18 +108,18 @@ class Decoder(nn.Module):
 
 # define module for the VAE
 class VAE(nn.Module):
-    # by default our latent space is 16-dimensional
-    def __init__(self, z_dim=16, hidden_dim=32, use_cuda=opts['use_cuda']):
+    # by default our latent space (z_dim) is 64-dimensional
+    def __init__(self, frame, z_dim=64, hidden_dim=128, batch_size=1, use_cuda=opts['use_cuda']):
         super(VAE, self).__init__()
         # submodules
-        self.encoder = Encoder(z_dim, hidden_dim)
-        self.decoder = Decoder(z_dim, hidden_dim)
+        self.encoder = Encoder(z_dim, hidden_dim, frame, batch_size)
+        self.decoder = Decoder(z_dim, hidden_dim, frame)
 
         # parameters
         self.cuda() if use_cuda else None
         self.use_cuda = use_cuda
         self.z_dim = z_dim
-        self.frame = opts['frame']
+        self.frame = frame
 
     # define the model p(x|z)p(z)
     def model(self, x):
