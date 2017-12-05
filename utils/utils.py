@@ -45,7 +45,7 @@ def llk_plot(test_elbo, *args):
 
     g.add_legend()
     g.set_axis_labels(x_lab, y_labs[0].split()[-1])
-    plt.savefig('./models/{}_elbo.{}'.format(filename, FILE_TYPE))
+    plt.savefig('./results/{}_elbo.{}'.format(filename, FILE_TYPE))
     plt.close('all')
 
 
@@ -64,7 +64,7 @@ def mse_plot(train_loss, test_loss):
 
     ax = df.iloc[:, 1:].plot(title='Prediction network loss')
     ax.set(xlabel='Epoch', ylabel='Loss')
-    plt.savefig('./models/nn_loss.{}'.format(FILE_TYPE))
+    plt.savefig('./results/nn_loss.{}'.format(FILE_TYPE))
     plt.close('all')
 
 

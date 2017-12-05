@@ -32,7 +32,7 @@ def save_predictions(val, filename):
     print(df)
     df.columns = ['id'] + ['t+{}'.format(t + 1) for t in range(df.shape[1] - 1)]
     print("... Saving to {}".format(filename))
-    df.to_csv('./{}'.format(filename), header=True, index=False)
+    df.to_csv('./results/{}'.format(filename), header=True, index=False)
 
 
 def create_batch(data, in_dim, out_dim, b_size):

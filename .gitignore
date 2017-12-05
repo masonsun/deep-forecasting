@@ -10,6 +10,7 @@ __pycache__/
 data/
 models/
 notebooks/
+utils/*/
 *.pdf
 *.csv
 
